@@ -17,8 +17,9 @@ public void act()
     if (isTouching(Alien.class))
     {
         Alien alienTouching = (Alien) getOneIntersectingObject(Alien.class);
-        World world = getWorld();
+        MyWorld world = (MyWorld) getWorld();
         world.removeObject(alienTouching);
+        world.addScore(10);
         world.removeObject(this);
         return;
     }

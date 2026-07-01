@@ -15,11 +15,12 @@ public class Alien extends Actor
     public void act()
     {
         if(getX() < 10) {
+            // Alien ist entkommen -> ein Leben verloren.
+            ((MyWorld) getWorld()).loseLife();
             getWorld().removeObject(this);
+            return;
         }
-        
-        
-        
+
         move(-1);
     }
 }
