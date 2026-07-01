@@ -128,35 +128,156 @@ public class MyWorld extends World
         }
     }
 
+    // Pixel-Art-Herz (7x6 Raster) fuer die Lebensanzeige.
+    private static final int[][] HEART = {
+        {0, 1, 1, 0, 1, 1, 0},
+        {1, 1, 1, 1, 1, 1, 1},
+        {1, 1, 1, 1, 1, 1, 1},
+        {0, 1, 1, 1, 1, 1, 0},
+        {0, 0, 1, 1, 1, 0, 0},
+        {0, 0, 0, 1, 0, 0, 0}
+    };
+
+    /**
+     * Zeichnet das HUD im Pixel-Art-Stil: Punkte-Panel mit Muenze, Boost-Leiste
+     * und Herzen fuer die Leben. Wird jeden Frame auf den Hintergrund gezeichnet.
+     */
     private void drawHud(GreenfootImage bg)
     {
-        bg.setColor(new Color(255, 255, 255));
-        bg.setFont(new Font(true, false, 18));
-        bg.drawString("Punkte: " + score, 12, 24);
-        bg.drawString("Leben: " + lives, WIDTH - 110, 24);
+        Spaceship ship = getShip();
 
-        if (isRapidFireActive())
+        // --- Punkte-Panel (oben links) ---
+        drawPanel(bg, 8, 8, 170, 30);
+        bg.setColor(new Color(250, 210, 60));      // Muenze
+        bg.fillOval(16, 15, 16, 16);
+        bg.setColor(new Color(180, 130, 20));
+        bg.drawOval(16, 15, 16, 16);
+        bg.setColor(new Color(255, 245, 190));
+        bg.setFont(new Font("Monospaced", true, false, 16));
+        bg.drawString(String.format("%06d", score), 40, 29);
+
+        // --- Boost-Panel (darunter) ---
+        drawPanel(bg, 8, 42, 170, 24);
+        bg.setColor(new Color(120, 220, 255));
+        bg.setFont(new Font("Monospaced", true, false, 12));
+        bg.drawString("BOOST", 14, 59);
+        double frac = (ship != null) ? ship.getBoostFraction() : 0;
+        boolean ready = frac >= 1.0;
+        Color barColor = (ship != null && ship.isBoosting()) ? new Color(255, 120, 60)
+                        : ready ? new Color(90, 240, 120)
+                                : new Color(80, 180, 240);
+        drawBar(bg, 66, 47, 104, 14, frac, barColor);
+
+        // --- Leben als Pixel-Herzen (oben rechts) ---
+        int hearts = Math.min(lives, 6);
+        int hx = WIDTH - 12 - hearts * 24;
+        for (int i = 0; i < hearts; i++)
         {
-            bg.setColor(new Color(240, 200, 30));
-            bg.setFont(new Font(true, false, 14));
-            bg.drawString("SCHNELLFEUER!", WIDTH / 2 - 55, 24);
+            drawPixelHeart(bg, hx + i * 24, 12, 3);
+        }
+        if (lives > 6)
+        {
+            bg.setColor(new Color(255, 255, 255));
+            bg.setFont(new Font("Monospaced", true, false, 14));
+            bg.drawString("x" + lives, WIDTH - 40, 40);
+        }
+
+        // --- Schnellfeuer-Anzeige (oben mittig) ---
+        if (ship != null && ship.isRapidFireActive())
+        {
+            drawPanel(bg, WIDTH / 2 - 72, 8, 144, 24);
+            bg.setColor(new Color(250, 220, 40));
+            bg.setFont(new Font("Monospaced", true, false, 13));
+            bg.drawString("SCHNELLFEUER!", WIDTH / 2 - 60, 25);
         }
     }
 
     private void drawGameOver(GreenfootImage bg)
     {
+        int pw = 340, ph = 150;
+        int px = WIDTH / 2 - pw / 2;
+        int py = HEIGHT / 2 - ph / 2;
+        drawPanel(bg, px, py, pw, ph);
+
+        bg.setColor(new Color(255, 80, 80));
+        bg.setFont(new Font("Monospaced", true, false, 40));
+        bg.drawString("GAME OVER", WIDTH / 2 - 118, HEIGHT / 2 - 20);
+
         bg.setColor(new Color(255, 255, 255));
-        bg.setFont(new Font(true, false, 44));
-        bg.drawString("GAME OVER", WIDTH / 2 - 130, HEIGHT / 2 - 20);
-        bg.setFont(new Font(false, false, 22));
-        bg.drawString("Punkte: " + score, WIDTH / 2 - 55, HEIGHT / 2 + 20);
-        bg.drawString("Druecke R fuer Neustart", WIDTH / 2 - 110, HEIGHT / 2 + 55);
+        bg.setFont(new Font("Monospaced", true, false, 18));
+        bg.drawString("Punkte: " + String.format("%06d", score), WIDTH / 2 - 70, HEIGHT / 2 + 18);
+
+        bg.setColor(new Color(180, 220, 255));
+        bg.setFont(new Font("Monospaced", true, false, 14));
+        bg.drawString("Druecke R fuer Neustart", WIDTH / 2 - 92, HEIGHT / 2 + 48);
     }
 
-    private boolean isRapidFireActive()
+    private Spaceship getShip()
     {
         java.util.List<Spaceship> ships = getObjects(Spaceship.class);
-        return !ships.isEmpty() && ships.get(0).isRapidFireActive();
+        return ships.isEmpty() ? null : ships.get(0);
+    }
+
+    /**
+     * Zeichnet ein halbtransparentes Pixel-Panel mit chunkigem Rahmen und
+     * hellen Eck-Pixeln (Retro-Look).
+     */
+    private void drawPanel(GreenfootImage bg, int x, int y, int w, int h)
+    {
+        bg.setColor(new Color(15, 20, 45, 210));
+        bg.fillRect(x, y, w, h);
+        bg.setColor(new Color(90, 130, 220));
+        bg.drawRect(x, y, w - 1, h - 1);
+        bg.drawRect(x + 1, y + 1, w - 3, h - 3);
+        bg.setColor(new Color(180, 220, 255));
+        bg.fillRect(x, y, 2, 2);
+        bg.fillRect(x + w - 2, y, 2, 2);
+        bg.fillRect(x, y + h - 2, 2, 2);
+        bg.fillRect(x + w - 2, y + h - 2, 2, 2);
+    }
+
+    /**
+     * Zeichnet eine segmentierte Pixel-Fortschrittsleiste (0..1).
+     */
+    private void drawBar(GreenfootImage bg, int x, int y, int w, int h, double frac, Color color)
+    {
+        if (frac < 0) frac = 0;
+        if (frac > 1) frac = 1;
+
+        bg.setColor(new Color(10, 15, 30));
+        bg.fillRect(x, y, w, h);
+        bg.setColor(new Color(70, 90, 140));
+        bg.drawRect(x, y, w - 1, h - 1);
+
+        int segs = 10;
+        int filled = (int) Math.round(frac * segs);
+        int segW = (w - 4) / segs;
+        for (int i = 0; i < segs; i++)
+        {
+            bg.setColor(i < filled ? color : new Color(30, 40, 70));
+            bg.fillRect(x + 2 + i * segW, y + 2, segW - 1, h - 4);
+        }
+    }
+
+    /**
+     * Zeichnet ein rotes Pixel-Herz anhand des HEART-Rasters.
+     */
+    private void drawPixelHeart(GreenfootImage bg, int x, int y, int scale)
+    {
+        for (int r = 0; r < HEART.length; r++)
+        {
+            for (int c = 0; c < HEART[r].length; c++)
+            {
+                if (HEART[r][c] == 1)
+                {
+                    bg.setColor(new Color(225, 45, 65));
+                    bg.fillRect(x + c * scale, y + r * scale, scale, scale);
+                }
+            }
+        }
+        // Glanzpunkt fuer den Pixel-Look.
+        bg.setColor(new Color(255, 150, 170));
+        bg.fillRect(x + scale, y + scale, scale, scale);
     }
 
     private void spawnAlien()
