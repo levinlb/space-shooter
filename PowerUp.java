@@ -63,7 +63,7 @@ public class PowerUp extends Actor
                 }
                 break;
             case BOMB:
-                world.bombAliens();
+                world.bombEnemies();
                 break;
             case POINTS:
                 world.addScore(POINTS_BONUS);
