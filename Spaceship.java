@@ -1,42 +1,68 @@
 import greenfoot.*;  // (World, Actor, GreenfootImage, Greenfoot and MouseInfo)
-import java.util.ArrayList;
 
 /**
- * Write a description of class Spaceship here.
- * 
- * @author (your name) 
- * @version (a version number or a date)
+ * Das Raumschiff des Spielers. Bewegt sich in alle vier Richtungen (innerhalb
+ * der Bildschirmgrenzen) und schießt Bullets mit einem kurzen Cooldown.
  */
 public class Spaceship extends Actor
 {
-    private ArrayList<Bullet> bullets = new ArrayList<Bullet>();
-    
-    /**
-     * Act - do whatever the Spaceship wants to do. This method is called whenever
-     * the 'Act' or 'Run' button gets pressed in the environment.
-     */
+    private static final int SPEED = 3;          // Bewegung pro Act
+    private static final int FIRE_COOLDOWN = 15;  // Acts zwischen zwei Schuessen
+
+    private int cooldown = 0;
+
     public void act()
     {
-        if (Greenfoot.isKeyDown("up")) {
-             setLocation(getX(), getY() - 1);
-        }
-        
-        if (Greenfoot.isKeyDown("down")) {
-             setLocation(getX(), getY() + 1);
-        }
-        
-        if (Greenfoot.isKeyDown("space")) {
-            fireBullet();
-        }
-        
-        
-        // Add your action code here.
+        handleMovement();
+        handleFiring();
     }
-    
-    private void fireBullet() {
-        Bullet newBullet = new Bullet();
-        
-        getWorld().addObject(newBullet, getX() + 10, getY());
-        bullets.add(newBullet);
+
+    private void handleMovement()
+    {
+        int x = getX();
+        int y = getY();
+
+        if (Greenfoot.isKeyDown("up")) {
+            y -= SPEED;
+        }
+        if (Greenfoot.isKeyDown("down")) {
+            y += SPEED;
+        }
+        if (Greenfoot.isKeyDown("left")) {
+            x -= SPEED;
+        }
+        if (Greenfoot.isKeyDown("right")) {
+            x += SPEED;
+        }
+
+        // Innerhalb der Weltgrenzen halten.
+        x = clamp(x, 0, getWorld().getWidth() - 1);
+        y = clamp(y, 0, getWorld().getHeight() - 1);
+
+        setLocation(x, y);
+    }
+
+    private void handleFiring()
+    {
+        if (cooldown > 0) {
+            cooldown--;
+        }
+
+        if (cooldown == 0 && Greenfoot.isKeyDown("space")) {
+            fireBullet();
+            cooldown = FIRE_COOLDOWN;
+        }
+    }
+
+    private void fireBullet()
+    {
+        getWorld().addObject(new Bullet(), getX() + 10, getY());
+    }
+
+    private int clamp(int value, int min, int max)
+    {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
     }
 }
