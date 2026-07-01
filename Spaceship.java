@@ -6,10 +6,12 @@ import greenfoot.*;  // (World, Actor, GreenfootImage, Greenfoot and MouseInfo)
  */
 public class Spaceship extends Actor
 {
-    private static final int SPEED = 3;          // Bewegung pro Act
-    private static final int FIRE_COOLDOWN = 15;  // Acts zwischen zwei Schuessen
+    private static final int SPEED = 3;                // Bewegung pro Act
+    private static final int FIRE_COOLDOWN = 15;        // Acts zwischen zwei Schuessen
+    private static final int RAPID_FIRE_COOLDOWN = 4;   // Cooldown bei Schnellfeuer
 
     private int cooldown = 0;
+    private int rapidFireTimer = 0;
 
     public void act()
     {
@@ -47,11 +49,27 @@ public class Spaceship extends Actor
         if (cooldown > 0) {
             cooldown--;
         }
+        if (rapidFireTimer > 0) {
+            rapidFireTimer--;
+        }
 
         if (cooldown == 0 && Greenfoot.isKeyDown("space")) {
             fireBullet();
-            cooldown = FIRE_COOLDOWN;
+            cooldown = (rapidFireTimer > 0) ? RAPID_FIRE_COOLDOWN : FIRE_COOLDOWN;
         }
+    }
+
+    /**
+     * Aktiviert Schnellfeuer fuer die angegebene Anzahl Acts.
+     */
+    public void activateRapidFire(int duration)
+    {
+        rapidFireTimer = duration;
+    }
+
+    public boolean isRapidFireActive()
+    {
+        return rapidFireTimer > 0;
     }
 
     private void fireBullet()
