@@ -20,6 +20,9 @@ public class Attacker extends Enemy
         hp = 3;
         scoreValue = 25;
         creditValue = 15;
+        explosionColor = new Color(230, 80, 60);
+        explosionSize = 30;
+        explosionSparks = 10;
         fireCooldown = 30 + Greenfoot.getRandomNumber(FIRE_INTERVAL);
         setImage(buildImage());
     }

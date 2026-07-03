@@ -15,6 +15,11 @@ public abstract class Enemy extends Actor
     protected int scoreValue = 10;
     protected int creditValue = 5;
 
+    // Aussehen der Todesexplosion (von Unterklassen anpassbar).
+    protected Color explosionColor = new Color(255, 170, 60);
+    protected int explosionSize = 26;
+    protected int explosionSparks = 8;
+
     /**
      * Wird von einem Spieler-Schuss aufgerufen. Zieht Schaden ab; bei 0 hp
      * stirbt der Gegner (mit Belohnung).
@@ -34,11 +39,20 @@ public abstract class Enemy extends Actor
         MyWorld world = getMyWorld();
         if (world != null)
         {
+            onDeath(world);
+            world.addObject(new Explosion(explosionSize, explosionColor, explosionSparks),
+                            getX(), getY());
             world.addScore(scoreValue);
             world.addCredits(creditValue);
             world.removeObject(this);
         }
     }
+
+    /**
+     * Haken fuer Unterklassen, die beim Tod etwas Besonderes tun (z.B. der
+     * Teiler, der sich in kleinere Gegner aufspaltet). Standard: nichts.
+     */
+    protected void onDeath(MyWorld world) { }
 
     /** Ohne Belohnung entfernen (entkommen oder in das Schiff gerammt). */
     protected void despawn()

@@ -20,6 +20,28 @@ public class Spaceship extends Actor
     private static final int SHIELD_REGEN_WAIT = 120; // Acts nach letztem Treffer
     private static final int SHIELD_REGEN_EVERY = 8;  // je N Acts +1 Schild
 
+    // ---- Draft-Waffen (im Waffen-Auswahl-Bildschirm alle 5 Wellen erhaltbar) ----
+    public static final int W_SPREAD = 0;   // Streuschuss
+    public static final int W_HOMING = 1;   // Lenkraketen
+    public static final int W_LASER  = 2;   // Laserstrahl
+    public static final int W_PLASMA = 3;   // Plasma
+    public static final int W_DRONE  = 4;   // Kampfdrohne (Begleiter)
+    public static final int W_NOVA   = 5;   // Nova-Bombe (aktive Faehigkeit, Taste X)
+    public static final int WEAPON_KINDS = 6;
+    public static final int WEAPON_MAX_LEVEL = 5;
+
+    public static final String[] WEAPON_NAMES =
+        { "Streuschuss", "Lenkraketen", "Laserstrahl", "Plasma", "Kampfdrohne", "Nova-Bombe" };
+    public static final String[] WEAPON_DESC =
+        { "Faecher aus Schuessen", "Suchende Raketen", "Durchschlag-Strahl",
+          "Grosse Plasmakugel", "Umkreisende Drohne", "Taste X: Rundumschlag" };
+
+    private final int[] draftLevel = new int[WEAPON_KINDS];
+    private final int[] draftCd = new int[WEAPON_KINDS];
+    private double novaCharge = 0;
+    private boolean novaKeyPrev = false;
+    private int engineTrailTick = 0;
+
     // Upgrade-Level.
     private int weaponLevel = 0;
     private int armorLevel = 0;
@@ -75,6 +97,9 @@ public class Spaceship extends Actor
 
         handleMovement();
         handleFiring();
+        updateDraftWeapons();
+        updateNova();
+        updateEngineTrail();
     }
 
     // ---- Bewegung & Boost ----
@@ -144,6 +169,17 @@ public class Spaceship extends Actor
             int oy = startOffset + i * spread;
             world.addObject(new Bullet(bulletDamage), getX() + 16, getY() + oy);
         }
+        spawnMuzzleFlash(world);
+    }
+
+    private void spawnMuzzleFlash(World world)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            double vy = (Greenfoot.getRandomNumber(7) - 3) * 0.3;
+            world.addObject(new Particle(1.5 + Math.random(), vy, 5, 3,
+                            new Color(180, 240, 255), true), getX() + 20, getY());
+        }
     }
 
     // ---- Schild / Schaden ----
@@ -154,6 +190,9 @@ public class Spaceship extends Actor
 
         shield -= amount;
         shieldRegenDelay = SHIELD_REGEN_WAIT;
+
+        MyWorld mw = (getWorld() instanceof MyWorld) ? (MyWorld) getWorld() : null;
+        if (mw != null) mw.screenFlash(new Color(255, 60, 60), 55);
 
         if (shield <= 0)
         {
@@ -242,6 +281,141 @@ public class Spaceship extends Actor
     public double getBoostFraction() { return (double) boostCharge / boostMax; }
     public boolean isBoosting() { return boosting; }
     public double getShieldFraction() { return (double) shield / maxShield; }
+
+    // ---- Draft-Waffen: automatisches Feuern ----
+
+    private void updateDraftWeapons()
+    {
+        World world = getWorld();
+        if (world == null) return;
+
+        for (int t = 0; t < WEAPON_KINDS; t++)
+        {
+            if (t == W_DRONE || t == W_NOVA) continue;   // Drohne = Actor, Nova = aktiv
+            if (draftLevel[t] <= 0) continue;
+            if (draftCd[t] > 0) { draftCd[t]--; continue; }
+
+            switch (t)
+            {
+                case W_SPREAD: fireSpread(world); break;
+                case W_HOMING: fireHoming(world); break;
+                case W_LASER:  fireLaser(world);  break;
+                case W_PLASMA: firePlasma(world); break;
+            }
+        }
+    }
+
+    private void fireSpread(World world)
+    {
+        int lvl = draftLevel[W_SPREAD];
+        int shotsN = lvl + 2;                       // 3..7
+        int dmg = 1 + lvl / 2;
+        double total = 0.5 + lvl * 0.08;            // Faecherbreite
+        double step = (shotsN > 1) ? total / (shotsN - 1) : 0;
+        double startAng = -total / 2;
+        for (int i = 0; i < shotsN; i++)
+        {
+            double ang = startAng + i * step;
+            double vx = Math.cos(ang) * 6.5;
+            double vy = Math.sin(ang) * 6.5;
+            world.addObject(new Bullet(dmg, vx, vy, 1, Bullet.STYLE_SPREAD), getX() + 16, getY());
+        }
+        draftCd[W_SPREAD] = Math.max(12, 32 - lvl * 3);
+    }
+
+    private void fireHoming(World world)
+    {
+        int lvl = draftLevel[W_HOMING];
+        int count = 1 + lvl / 2;                     // 1..3
+        int dmg = 2 + lvl;
+        for (int i = 0; i < count; i++)
+        {
+            int oy = (count == 1) ? 0 : (i - (count - 1) / 2) * 14;
+            world.addObject(new Missile(dmg), getX() + 12, getY() + oy);
+        }
+        draftCd[W_HOMING] = Math.max(28, 74 - lvl * 8);
+    }
+
+    private void fireLaser(World world)
+    {
+        int lvl = draftLevel[W_LASER];
+        int dmg = 1 + lvl / 2;
+        int length = world.getWidth() - getX();
+        if (length < 20) length = 20;
+        int life = 14 + lvl * 2;
+        world.addObject(new LaserBeam(dmg, length, life), getX() + length / 2, getY());
+        draftCd[W_LASER] = Math.max(40, 92 - lvl * 8);
+    }
+
+    private void firePlasma(World world)
+    {
+        int lvl = draftLevel[W_PLASMA];
+        int dmg = 3 + lvl;
+        int pierce = 1 + lvl;
+        world.addObject(new Bullet(dmg, 4.2, 0, pierce, Bullet.STYLE_PLASMA), getX() + 16, getY());
+        draftCd[W_PLASMA] = Math.max(20, 46 - lvl * 4);
+    }
+
+    // ---- Nova-Bombe (aktive Faehigkeit) ----
+
+    private void updateNova()
+    {
+        int lvl = draftLevel[W_NOVA];
+        if (lvl <= 0) return;
+
+        // Aufladen.
+        if (novaCharge < lvl)
+        {
+            novaCharge += 1.0 / 540.0;               // ~11s pro Ladung
+            if (novaCharge > lvl) novaCharge = lvl;
+        }
+
+        boolean down = Greenfoot.isKeyDown("x");
+        if (down && !novaKeyPrev && novaCharge >= 1.0)
+        {
+            novaCharge -= 1.0;
+            MyWorld world = (getWorld() instanceof MyWorld) ? (MyWorld) getWorld() : null;
+            if (world != null)
+            {
+                int dmg = 6 + lvl * 3;
+                world.novaBlast(getX(), getY(), dmg, 260);
+            }
+        }
+        novaKeyPrev = down;
+    }
+
+    // ---- Triebwerksspur ----
+
+    private void updateEngineTrail()
+    {
+        World world = getWorld();
+        if (world == null) return;
+        engineTrailTick++;
+        int every = boosting ? 1 : 3;
+        if (engineTrailTick % every != 0) return;
+
+        double spd = boosting ? -3.5 : -2.0;
+        int size = boosting ? 4 : 3;
+        Color c = boosting ? new Color(255, 140, 60) : new Color(120, 180, 255);
+        world.addObject(new Particle(spd, (Greenfoot.getRandomNumber(5) - 2) * 0.4,
+                        boosting ? 14 : 9, size, c, true), getX() - 18, getY());
+    }
+
+    // ---- Draft-Waffen: Zugriff ----
+
+    /** Fuegt eine Waffe hinzu oder steigert sie (Brotato-Stil). */
+    public void addOrLevelWeapon(int type)
+    {
+        if (type < 0 || type >= WEAPON_KINDS) return;
+        if (draftLevel[type] < WEAPON_MAX_LEVEL) draftLevel[type]++;
+        if (type == W_NOVA && novaCharge < 1.0) novaCharge = 1.0;
+    }
+
+    public int getDraftLevel(int type) { return (type >= 0 && type < WEAPON_KINDS) ? draftLevel[type] : 0; }
+    public boolean ownsWeapon(int type) { return getDraftLevel(type) > 0; }
+    public int getDroneLevel() { return draftLevel[W_DRONE]; }
+    public double getNovaCharge() { return novaCharge; }
+    public int getNovaMax() { return draftLevel[W_NOVA]; }
 
     // ---- Hilfen ----
 

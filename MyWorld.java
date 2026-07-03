@@ -23,6 +23,7 @@ public class MyWorld extends World
     private static final int PLAYING = 0;
     private static final int SHOP = 1;
     private static final int GAMEOVER = 2;
+    private static final int DRAFT = 3;     // Waffenwahl nach einem Boss
 
     // Upgrade-Obergrenzen.
     private static final int WEAPON_MAX = 5;
@@ -41,6 +42,16 @@ public class MyWorld extends World
     private int credits = 0;
     private int lives = START_LIVES;
 
+    private boolean bossWave = false;
+
+    // Waffenwahl (Draft).
+    private final int[] draftChoices = new int[3];
+
+    // Bildschirm-Blitz (Effekt).
+    private Color flashColor = null;
+    private int flashTimer = 0;
+    private int flashMax = 1;
+
     // Sternenfeld.
     private int[] starX = new int[STAR_COUNT];
     private int[] starY = new int[STAR_COUNT];
@@ -49,6 +60,9 @@ public class MyWorld extends World
     public MyWorld()
     {
         super(WIDTH, HEIGHT, 1);
+        setPaintOrder(PowerUp.class, Spaceship.class, Turret.class, Drone.class,
+                      Boss.class, Enemy.class, Missile.class, Bullet.class,
+                      EnemyBullet.class, LaserBeam.class, Explosion.class, Particle.class);
         initStars();
         addObject(new Spaceship(), 60, HEIGHT / 2);
         startWave(1);
@@ -64,6 +78,7 @@ public class MyWorld extends World
         {
             case PLAYING:  updatePlaying(); break;
             case SHOP:     updateShop();    break;
+            case DRAFT:    updateDraft();   break;
             case GAMEOVER:
                 if (Greenfoot.isKeyDown("r")) Greenfoot.setWorld(new MyWorld());
                 break;
@@ -75,10 +90,22 @@ public class MyWorld extends World
     private void startWave(int n)
     {
         wave = n;
-        enemiesToSpawn = 4 + n * 2;
-        waveSpawnInterval = Math.max(25, 70 - n * 3);
         spawnTimer = 0;
         gameState = PLAYING;
+
+        if (n % 5 == 0)
+        {
+            // Boss-Welle: nur der Boss (er kann selbst Begleiter rufen).
+            bossWave = true;
+            enemiesToSpawn = 0;
+            addObject(new Boss(n / 5), getWidth() - 60, HEIGHT / 2);
+        }
+        else
+        {
+            bossWave = false;
+            enemiesToSpawn = 4 + n * 2;
+            waveSpawnInterval = Math.max(25, 70 - n * 3);
+        }
     }
 
     private void updatePlaying()
@@ -95,12 +122,15 @@ public class MyWorld extends World
             }
         }
 
-        // Gelegentlich ein Power-up.
-        powerUpCount++;
-        if (powerUpCount >= POWERUP_INTERVAL)
+        // Gelegentlich ein Power-up (nicht waehrend eines Boss-Kampfes).
+        if (!bossWave)
         {
-            powerUpCount = 0;
-            spawnPowerUp();
+            powerUpCount++;
+            if (powerUpCount >= POWERUP_INTERVAL)
+            {
+                powerUpCount = 0;
+                spawnPowerUp();
+            }
         }
 
         // Welle geschafft? (nichts mehr zu spawnen, keine Gegner/Projektile mehr)
@@ -108,22 +138,56 @@ public class MyWorld extends World
             && getObjects(Enemy.class).isEmpty()
             && getObjects(EnemyBullet.class).isEmpty())
         {
-            enterShop();
+            if (bossWave) enterDraft();
+            else enterShop();
         }
     }
 
     private void spawnWaveEnemy()
     {
-        int attackerChance = Math.min(65, 15 + wave * 6); // Prozent
         int y = 30 + Greenfoot.getRandomNumber(HEIGHT - 60);
-        if (Greenfoot.getRandomNumber(100) < attackerChance)
+        addObject(createWaveEnemy(), WIDTH - 20, y);
+    }
+
+    /**
+     * Waehlt einen Gegnertyp gewichtet nach der aktuellen Welle. Fruehe Wellen
+     * bestehen aus Asteroiden und Jaegern; spaeter kommen Drohnen, Rammer,
+     * Teiler und schwere Bomber dazu.
+     */
+    private Enemy createWaveEnemy()
+    {
+        int w = wave;
+        int[] weights = {
+            Math.max(12, 45 - w * 3),          // Alien
+            Math.min(40, 18 + w * 2),          // Attacker
+            (w >= 2) ? 16 : 0,                 // Drohne
+            (w >= 3) ? 12 : 0,                 // Rammer
+            (w >= 3) ? 12 : 0,                 // Teiler
+            (w >= 4) ? 10 + (w - 4) : 0        // Bomber
+        };
+
+        int total = 0;
+        for (int weight : weights) total += weight;
+        int roll = Greenfoot.getRandomNumber(Math.max(1, total));
+
+        int acc = 0;
+        for (int i = 0; i < weights.length; i++)
         {
-            addObject(new Attacker(), WIDTH - 20, y);
+            acc += weights[i];
+            if (roll < acc)
+            {
+                switch (i)
+                {
+                    case 0: return new Alien();
+                    case 1: return new Attacker();
+                    case 2: return new Drohne();
+                    case 3: return new Rammer();
+                    case 4: return new Teiler();
+                    case 5: return new Bomber();
+                }
+            }
         }
-        else
-        {
-            addObject(new Alien(), WIDTH - 20, y);
-        }
+        return new Alien();
     }
 
     private void spawnPowerUp()
@@ -138,9 +202,16 @@ public class MyWorld extends World
     private void enterShop()
     {
         gameState = SHOP;
-        // Reste aufraeumen, damit die naechste Welle sauber startet.
+        clearProjectiles();
+    }
+
+    /** Entfernt alle fliegenden Projektile/Effekte (Drohnen bleiben erhalten). */
+    private void clearProjectiles()
+    {
         removeObjects(getObjects(EnemyBullet.class));
         removeObjects(getObjects(Bullet.class));
+        removeObjects(getObjects(Missile.class));
+        removeObjects(getObjects(LaserBeam.class));
         removeObjects(getObjects(PowerUp.class));
     }
 
@@ -206,6 +277,96 @@ public class MyWorld extends World
         }
     }
 
+    // ---- Waffenwahl (Draft, Brotato-Stil) ----
+
+    private void enterDraft()
+    {
+        gameState = DRAFT;
+        clearProjectiles();
+
+        // Drei verschiedene Waffen zufaellig auslosen.
+        boolean[] used = new boolean[Spaceship.WEAPON_KINDS];
+        for (int i = 0; i < 3; i++)
+        {
+            int t;
+            do { t = Greenfoot.getRandomNumber(Spaceship.WEAPON_KINDS); }
+            while (used[t]);
+            used[t] = true;
+            draftChoices[i] = t;
+        }
+    }
+
+    private void updateDraft()
+    {
+        String key = Greenfoot.getKey();
+        if (key == null) return;
+
+        int pick = -1;
+        if (key.equals("1")) pick = 0;
+        else if (key.equals("2")) pick = 1;
+        else if (key.equals("3")) pick = 2;
+        if (pick < 0) return;
+
+        applyDraftPick(draftChoices[pick]);
+        enterShop();     // nach der Waffenwahl in den normalen Upgrade-Shop
+    }
+
+    private void applyDraftPick(int type)
+    {
+        Spaceship ship = getShip();
+        if (ship == null) return;
+        ship.addOrLevelWeapon(type);
+        if (type == Spaceship.W_DRONE) syncDrones(ship);
+        screenFlash(new Color(120, 240, 180), 60);
+    }
+
+    /** Passt die Anzahl umkreisender Drohnen an das Drohnen-Level an (max 4). */
+    private void syncDrones(Spaceship ship)
+    {
+        removeObjects(getObjects(Drone.class));
+        int count = Math.min(4, ship.getDroneLevel());
+        for (int i = 0; i < count; i++)
+        {
+            addObject(new Drone(ship, i, count), ship.getX(), ship.getY() - 30);
+        }
+    }
+
+    // ---- Effekte ----
+
+    /** Loest die Nova-Bombe aus: Flaechenschaden, raeumt Projektile, Schockwelle. */
+    public void novaBlast(int cx, int cy, int damage, int radius)
+    {
+        for (Object o : getObjects(Enemy.class))
+        {
+            Enemy e = (Enemy) o;
+            int dx = e.getX() - cx, dy = e.getY() - cy;
+            if (dx * dx + dy * dy <= radius * radius)
+            {
+                e.hit(damage);
+            }
+        }
+        // Feindliche Projektile im Umkreis wegraeumen.
+        for (Object o : getObjects(EnemyBullet.class))
+        {
+            EnemyBullet b = (EnemyBullet) o;
+            int dx = b.getX() - cx, dy = b.getY() - cy;
+            if (dx * dx + dy * dy <= (radius + 40) * (radius + 40))
+            {
+                removeObject(b);
+            }
+        }
+        addObject(new Explosion(radius * 2, new Color(120, 220, 255), 30), cx, cy);
+        screenFlash(new Color(150, 230, 255), 120);
+    }
+
+    /** Legt einen kurz aufleuchtenden, farbigen Vollbild-Blitz an. */
+    public void screenFlash(Color color, int strength)
+    {
+        this.flashColor = color;
+        this.flashTimer = strength;
+        this.flashMax = Math.max(1, strength);
+    }
+
     // ---- Spielereignisse ----
 
     public void addScore(int points) { score += points; }
@@ -222,13 +383,16 @@ public class MyWorld extends World
         }
     }
 
-    /** Bildschirm-Bombe: alle Gegner zerstoeren (mit Belohnung). */
+    /** Bildschirm-Bombe: normale Gegner zerstoeren, einen Boss stark treffen. */
     public void bombEnemies()
     {
         for (Object o : getObjects(Enemy.class))
         {
-            ((Enemy) o).die();
+            Enemy e = (Enemy) o;
+            if (e instanceof Boss) e.hit(60);   // Boss nicht sofort ausschalten
+            else e.die();
         }
+        screenFlash(new Color(255, 200, 120), 90);
     }
 
     public boolean isPlaying() { return gameState == PLAYING; }
@@ -246,8 +410,11 @@ public class MyWorld extends World
         removeObjects(getObjects(Enemy.class));
         removeObjects(getObjects(EnemyBullet.class));
         removeObjects(getObjects(Bullet.class));
+        removeObjects(getObjects(Missile.class));
+        removeObjects(getObjects(LaserBeam.class));
         removeObjects(getObjects(PowerUp.class));
         removeObjects(getObjects(Turret.class));
+        removeObjects(getObjects(Drone.class));
         removeObjects(getObjects(Spaceship.class));
     }
 
@@ -285,10 +452,22 @@ public class MyWorld extends World
             }
         }
 
+        drawFlash(bg);
         drawHud(bg);
 
         if (gameState == SHOP) drawShop(bg);
+        else if (gameState == DRAFT) drawDraft(bg);
         else if (gameState == GAMEOVER) drawGameOver(bg);
+    }
+
+    private void drawFlash(GreenfootImage bg)
+    {
+        if (flashTimer <= 0 || flashColor == null) return;
+        int alpha = (int) (110.0 * flashTimer / flashMax);
+        if (alpha < 0) alpha = 0;
+        bg.setColor(new Color(flashColor.r, flashColor.g, flashColor.b, alpha));
+        bg.fill();
+        flashTimer--;
     }
 
     // Pixel-Art-Herz (7x6 Raster).
@@ -369,6 +548,79 @@ public class MyWorld extends World
             bg.setFont(new Font("Monospaced", true, false, 12));
             bg.drawString("SCHNELLFEUER!", WIDTH / 2 - 58, 56);
         }
+
+        drawBossBar(bg);
+        drawWeaponInventory(bg, ship);
+    }
+
+    private void drawBossBar(GreenfootImage bg)
+    {
+        Boss boss = getBoss();
+        if (boss == null) return;
+
+        int bw = 380;
+        int bx = WIDTH / 2 - bw / 2;
+        int by = 40;
+        drawPanel(bg, bx - 6, by - 4, bw + 12, 36);
+
+        bg.setColor(new Color(255, 120, 120));
+        bg.setFont(new Font("Monospaced", true, false, 13));
+        String label = "BOSS  " + boss.getName() + (boss.isPhase2() ? "  [PHASE 2]" : "");
+        bg.drawString(label, bx, by + 8);
+
+        double f = boss.getHpFraction();
+        Color c = boss.isPhase2() ? new Color(255, 90, 60) : new Color(255, 60, 90);
+        drawBar(bg, bx, by + 14, bw, 12, f, c);
+    }
+
+    private void drawWeaponInventory(GreenfootImage bg, Spaceship ship)
+    {
+        if (ship == null) return;
+
+        // Nur besessene Waffen auflisten.
+        int count = 0;
+        for (int t = 0; t < Spaceship.WEAPON_KINDS; t++)
+            if (ship.getDraftLevel(t) > 0) count++;
+        if (count == 0) return;
+
+        int rowH = 15;
+        int ph = 6 + count * rowH;
+        int px = 8;
+        int py = HEIGHT - 8 - ph;
+        drawPanel(bg, px, py, 168, ph);
+
+        bg.setFont(new Font("Monospaced", true, false, 11));
+        int y = py + 14;
+        for (int t = 0; t < Spaceship.WEAPON_KINDS; t++)
+        {
+            int lvl = ship.getDraftLevel(t);
+            if (lvl <= 0) continue;
+
+            String name = Spaceship.WEAPON_NAMES[t];
+            if (name.length() > 12) name = name.substring(0, 12);
+
+            bg.setColor(new Color(200, 225, 255));
+            bg.drawString(name, px + 8, y);
+
+            if (t == Spaceship.W_NOVA)
+            {
+                bg.setColor(new Color(150, 230, 255));
+                int charges = (int) Math.floor(ship.getNovaCharge());
+                bg.drawString("[X] " + charges + "/" + ship.getNovaMax(), px + 108, y);
+            }
+            else
+            {
+                bg.setColor(new Color(120, 240, 140));
+                bg.drawString("Lv " + lvl, px + 130, y);
+            }
+            y += rowH;
+        }
+    }
+
+    public Boss getBoss()
+    {
+        java.util.List<Boss> bosses = getObjects(Boss.class);
+        return bosses.isEmpty() ? null : bosses.get(0);
     }
 
     private void drawShop(GreenfootImage bg)
@@ -423,6 +675,123 @@ public class MyWorld extends World
         {
             bg.setColor(affordable ? new Color(120, 240, 140) : new Color(220, 110, 110));
             bg.drawString(cost + " C", x + 330, y);
+        }
+    }
+
+    private void drawDraft(GreenfootImage bg)
+    {
+        int pw = 500, ph = 260;
+        int px = WIDTH / 2 - pw / 2;
+        int py = HEIGHT / 2 - ph / 2;
+        drawPanel(bg, px, py, pw, ph);
+
+        bg.setColor(new Color(255, 230, 120));
+        bg.setFont(new Font("Monospaced", true, false, 22));
+        bg.drawString("WAFFE WAEHLEN", px + 140, py + 32);
+
+        bg.setColor(new Color(180, 220, 255));
+        bg.setFont(new Font("Monospaced", true, false, 12));
+        bg.drawString("Boss besiegt! Waehle 1 von 3 - Dopplung = Upgrade", px + 90, py + 52);
+
+        Spaceship ship = getShip();
+        int cardW = 150, cardH = 150, gap = 12;
+        int totalW = cardW * 3 + gap * 2;
+        int startX = WIDTH / 2 - totalW / 2;
+        int cardY = py + 70;
+
+        for (int i = 0; i < 3; i++)
+        {
+            int type = draftChoices[i];
+            int cx = startX + i * (cardW + gap);
+            int lvl = (ship != null) ? ship.getDraftLevel(type) : 0;
+            boolean owned = lvl > 0;
+            boolean maxed = lvl >= Spaceship.WEAPON_MAX_LEVEL;
+
+            // Kartenrahmen.
+            bg.setColor(new Color(25, 32, 60, 240));
+            bg.fillRect(cx, cardY, cardW, cardH);
+            bg.setColor(owned ? new Color(120, 240, 160) : new Color(255, 220, 120));
+            bg.drawRect(cx, cardY, cardW - 1, cardH - 1);
+            bg.drawRect(cx + 1, cardY + 1, cardW - 3, cardH - 3);
+
+            // Tastennummer.
+            bg.setColor(new Color(255, 230, 120));
+            bg.setFont(new Font("Monospaced", true, false, 22));
+            bg.drawString("[" + (i + 1) + "]", cx + 12, cardY + 30);
+
+            // Symbol.
+            drawWeaponIcon(bg, type, cx + cardW / 2 - 14, cardY + 42);
+
+            // Name.
+            bg.setColor(new Color(235, 240, 255));
+            bg.setFont(new Font("Monospaced", true, false, 14));
+            bg.drawString(Spaceship.WEAPON_NAMES[type], cx + 12, cardY + 96);
+
+            // Beschreibung.
+            bg.setColor(new Color(170, 195, 235));
+            bg.setFont(new Font("Monospaced", false, false, 10));
+            bg.drawString(Spaceship.WEAPON_DESC[type], cx + 12, cardY + 114);
+
+            // Status.
+            bg.setFont(new Font("Monospaced", true, false, 12));
+            if (maxed)
+            {
+                bg.setColor(new Color(120, 200, 255));
+                bg.drawString("MAX (Lv " + lvl + ")", cx + 12, cardY + 136);
+            }
+            else if (owned)
+            {
+                bg.setColor(new Color(120, 240, 160));
+                bg.drawString("UPGRADE Lv " + lvl + "->" + (lvl + 1), cx + 12, cardY + 136);
+            }
+            else
+            {
+                bg.setColor(new Color(255, 220, 120));
+                bg.drawString("NEU", cx + 12, cardY + 136);
+            }
+        }
+    }
+
+    /** Kleines Symbol je Waffentyp fuer die Draft-Karten. */
+    private void drawWeaponIcon(GreenfootImage bg, int type, int x, int y)
+    {
+        int s = 28;
+        switch (type)
+        {
+            case Spaceship.W_SPREAD:
+                bg.setColor(new Color(90, 255, 200));
+                for (int k = -1; k <= 1; k++) bg.drawLine(x, y + s / 2, x + s, y + s / 2 + k * 8);
+                break;
+            case Spaceship.W_HOMING:
+                bg.setColor(new Color(255, 150, 70));
+                bg.fillRect(x + 4, y + s / 2 - 3, s - 8, 6);
+                bg.fillRect(x + s - 6, y + s / 2 - 5, 6, 10);
+                break;
+            case Spaceship.W_LASER:
+                bg.setColor(new Color(120, 220, 255));
+                bg.fillRect(x, y + s / 2 - 3, s, 6);
+                bg.setColor(new Color(255, 255, 255));
+                bg.fillRect(x, y + s / 2 - 1, s, 2);
+                break;
+            case Spaceship.W_PLASMA:
+                bg.setColor(new Color(150, 60, 240, 150));
+                bg.fillOval(x + 2, y, s - 4, s - 4);
+                bg.setColor(new Color(210, 160, 255));
+                bg.fillOval(x + 7, y + 5, s - 14, s - 14);
+                break;
+            case Spaceship.W_DRONE:
+                bg.setColor(new Color(120, 200, 255));
+                bg.fillOval(x + 6, y + 4, s - 12, s - 12);
+                bg.setColor(new Color(210, 240, 255));
+                bg.fillOval(x + 10, y + 8, s - 20, s - 20);
+                break;
+            case Spaceship.W_NOVA:
+                bg.setColor(new Color(150, 230, 255));
+                bg.drawOval(x + 2, y + 2, s - 4, s - 4);
+                bg.drawOval(x + 7, y + 7, s - 14, s - 14);
+                bg.setColor(new Color(255, 255, 255));
+                bg.fillOval(x + s / 2 - 3, y + s / 2 - 3, 6, 6);
+                break;
         }
     }
 

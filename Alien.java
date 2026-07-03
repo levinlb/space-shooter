@@ -16,6 +16,9 @@ public class Alien extends Enemy
         hp = 1;
         scoreValue = 10;
         creditValue = 5;
+        explosionColor = new Color(150, 150, 165);
+        explosionSize = 26;
+        explosionSparks = 8;
         setImage(buildImage());
     }
 
